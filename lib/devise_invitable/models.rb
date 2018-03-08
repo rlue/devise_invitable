@@ -221,6 +221,8 @@ module Devise
 
       # Perform simple validation (e.g., regex), and only on invite key attributes
       def valid_for_invitation?
+        return valid? if self.class.validate_on_invite
+
         self.class.invite_key.each do |key, validator|
           if validator === send(key)
             errors.delete(key)
@@ -304,9 +306,7 @@ module Devise
               .reverse_merge!(password: invitee.encrypted_password.blank? ? random_password : nil)
 
             invitee.assign_attributes(attributes)
-
-            self.validate_on_invite ? invitee.valid? : invitee.valid_for_invitation?
-
+            invitee.valid_for_invitation?
             yield invitee if block_given?
           else
             invite_key_fields.each { |key| invitee.errors.add(key, :taken) }
