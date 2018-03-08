@@ -16,7 +16,7 @@ module Devise
     #
     # Examples:
     #
-    #   User.find(1).invited_to_sign_up?                    # => true/false
+    #   User.find(1).invitation_pending?                    # => true/false
     #   User.invite!(:email => 'someone@example.com')       # => send invitation
     #   User.accept_invitation!(:invitation_token => '...') # => accept invitation with a token
     #   User.find(1).accept_invitation!                     # => accept invitation
@@ -91,7 +91,7 @@ module Devise
       # Accept an invitation by clearing invitation token and and setting invitation_accepted_at
       # Saves the model and confirms it if model is confirmable, running invitation_accepted callbacks
       def accept_invitation!
-        if self.invited_to_sign_up?
+        if self.invitation_pending?
           @accepting_invitation = true
           run_callbacks :invitation_accepted do
             self.accept_invitation
@@ -107,9 +107,12 @@ module Devise
       end
 
       # Verifies whether a user has been invited or not
-      def invited_to_sign_up?
+      def invitation_pending?
         accepting_invitation? || (persisted? && invitation_token.present?)
       end
+
+      # For backwards compatibility with previous versions
+      alias invited_to_sign_up? invitation_pending?
 
       # Returns true if accept_invitation! was called
       def accepting_invitation?
@@ -123,13 +126,13 @@ module Devise
 
       # Verifies whether a user has accepted an invitation (false when user is accepting it), or was never invited
       def accepted_or_not_invited?
-        invitation_accepted? || !invited_to_sign_up?
+        invitation_accepted? || !invitation_pending?
       end
 
       # Reset invitation token and send invitation again
       def invite!(invited_by = nil, options = {})
         # This is an order-dependant assignment, this can't be moved
-        was_invited = invited_to_sign_up?
+        was_invited = invitation_pending?
 
         # Required to workaround confirmable model's confirmation_required? method
         # being implemented to check for non-nil value of confirmed_at
@@ -160,7 +163,7 @@ module Devise
       # invited, we need to calculate if the invitation time has not expired
       # for this user, in other words, if the invitation is still valid.
       def valid_invitation?
-        invited_to_sign_up? && invitation_period_valid?
+        invitation_pending? && invitation_period_valid?
       end
 
       # Only verify password when is not invited
@@ -185,7 +188,7 @@ module Devise
       def clear_reset_password_token
         reset_password_token_present = reset_password_token.present?
         super
-        accept_invitation! if reset_password_token_present && invited_to_sign_up?
+        accept_invitation! if reset_password_token_present && invitation_pending?
       end
 
       # Deliver the invitation email
@@ -213,7 +216,7 @@ module Devise
       end
 
       def eligible_for_invitation?
-        new_record? || (invited_to_sign_up? && self.class.resend_invitation)
+        new_record? || (invitation_pending? && self.class.resend_invitation)
       end
 
       # Perform simple validation (e.g., regex), and only on invite key attributes
@@ -233,7 +236,7 @@ module Devise
       protected
 
         def block_from_invitation?
-          invited_to_sign_up?
+          invitation_pending?
         end
 
         # Checks if the invitation for the user is within the limit time.
