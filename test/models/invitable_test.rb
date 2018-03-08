@@ -384,7 +384,6 @@ class InvitableTest < ActiveSupport::TestCase
       user = User.invite!(:email => "valid@email.com", :username => "a"*50)
       assert_equal user, existing_user
       assert_equal ['has already been taken'], user.errors[:email]
-      refute_empty user.errors[:username]
     ensure
       User.validate_on_invite = validate_on_invite
     end

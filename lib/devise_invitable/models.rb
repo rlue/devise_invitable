@@ -188,12 +188,6 @@ module Devise
         accept_invitation! if reset_password_token_present && invited_to_sign_up?
       end
 
-      def clear_errors_on_valid_keys
-        self.class.invite_key.each do |key, value|
-          self.errors.delete(key) if value === self.send(key)
-        end
-      end
-
       # Deliver the invitation email
       def deliver_invitation(options = {})
         generate_invitation_token! unless @raw_invitation_token
@@ -216,6 +210,24 @@ module Devise
 
         time = self.invitation_created_at || self.invitation_sent_at
         time + self.class.invite_for
+      end
+
+      def eligible_for_invitation?
+        new_record? || (invited_to_sign_up? && self.class.resend_invitation)
+      end
+
+      # Perform simple validation (e.g., regex), and only on invite key attributes
+      def valid_for_invitation?
+        self.class.invite_key.each do |key, validator|
+          if validator === send(key)
+            errors.delete(key)
+          else
+            error = self[key].present? ? :invalid : :blank
+            errors.add(key, error) unless errors.added?(key, error)
+          end
+        end
+
+        errors.any?
       end
 
       protected
@@ -274,49 +286,40 @@ module Devise
           invite_key.keys
         end
 
-        # Attempt to find a user by its email. If a record is not found,
-        # create a new user and send an invitation to it. If the user is found,
-        # return the user with an email already exists error.
-        # If the user is found and still has a pending invitation, invitation
-        # email is resent unless resend_invitation is set to false.
-        # Attributes must contain the user's email, other attributes will be
-        # set in the record
+        # Generate (or re-send) an invitation for a new user
+        # Returns the user record with errors if already registered
+        # (or already invited, and resending invitations is disabled)
+        # Attributes must include those listed in config.invite_key (default: [:email])
         def _invite(attributes={}, invited_by=nil, options = {}, &block)
-          invite_key_array = invite_key_fields
-          attributes_hash = {}
-          invite_key_array.each do |k,v|
-            attribute = attributes.delete(k)
-            attribute = attribute.to_s.strip if strip_whitespace_keys.include?(k)
-            attributes_hash[k] = attribute
+          # This method filters and sanitizes input attributes
+          # (e.g., stripping whitespace or downcasing where appropriate)
+          invitee = find_or_initialize_with_errors(invite_key_fields, attributes)
+
+          if invitee.eligible_for_invitation?
+            attributes.except!(*invite_key_fields)
+              .merge!(invited_by: invited_by)
+              .reverse_merge!(password: invitee.encrypted_password.blank? ? random_password : nil)
+
+            invitee.assign_attributes(attributes)
+
+            self.validate_on_invite ? invitee.valid? : invitee.valid_for_invitation?
+
+            yield invitee if block_given?
+          else
+            invite_key_fields.each { |key| invitee.errors.add(key, :taken) }
           end
 
-          invitable = find_or_initialize_with_errors(invite_key_array, attributes_hash)
-          invitable.assign_attributes(attributes)
-          invitable.invited_by = invited_by
-          unless invitable.password || invitable.encrypted_password.present?
-            invitable.password = random_password
-          end
-
-          invitable.valid? if self.validate_on_invite
-          if invitable.new_record?
-            invitable.clear_errors_on_valid_keys if !self.validate_on_invite
-          elsif !invitable.invited_to_sign_up? || !self.resend_invitation
-            invite_key_array.each do |key|
-              invitable.errors.add(key, :taken)
-            end
-          end
-
-          yield invitable if block_given?
-          mail = invitable.invite!(nil, options) if invitable.errors.empty?
-          [invitable, mail]
+          mail = invitee.invite!(nil, options) if invitee.errors.empty?
+          [invitee, mail]
         end
 
         def invite!(attributes={}, invited_by=nil, options = {}, &block)
-          attr_hash = ActiveSupport::HashWithIndifferentAccess.new(attributes.to_h)
-          _invite(attr_hash, invited_by, options, &block).first
+          attributes = attributes.to_h.with_indifferent_access
+          _invite(attributes, invited_by, options, &block).first
         end
 
         def invite_mail!(attributes={}, invited_by=nil, options = {}, &block)
+          attributes = attributes.to_h.with_indifferent_access
           _invite(attributes, invited_by, options, &block).last
         end
 

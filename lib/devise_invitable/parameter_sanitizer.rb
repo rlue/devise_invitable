@@ -20,7 +20,7 @@ module DeviseInvitable
       def attributes_for(kind)
         case kind
         when :invite
-          resource_class.respond_to?(:invite_key_fields) ? resource_class.invite_key_fields : []
+          resource_class.try(:invite_key_fields) || []
         when :accept_invitation
           [:password, :password_confirmation, :invitation_token]
         else
@@ -30,8 +30,8 @@ module DeviseInvitable
     else
       def initialize(resource_class, resource_name, params)
         super
-        permit(:invite, keys: (resource_class.respond_to?(:invite_key_fields) ? resource_class.invite_key_fields : []) )
-        permit(:accept_invitation, keys: [:password, :password_confirmation, :invitation_token] )
+        permit(:invite, keys: (resource_class.try(:invite_key_fields) || []))
+        permit(:accept_invitation, keys: [:password, :password_confirmation, :invitation_token])
       end
     end
   end
